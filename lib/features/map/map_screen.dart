@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'map_provider.dart';
+import 'dart:math' show min, max;
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -84,12 +85,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     try {
       ref.read(isLoadingProvider.notifier).state = true;
       ref.read(errorMessageProvider.notifier).state = null;
-      print('Updating route...');
+      ref.read(polylineProvider.notifier).state = {};
 
       final origin = ref.read(originLocationProvider);
       final destination = ref.read(destinationLocationProvider);
-      print('Origin: $origin');
-      print('Destination: $destination');
 
       if (origin == null || destination == null) {
         ref.read(errorMessageProvider.notifier).state =
@@ -97,44 +96,32 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         return;
       }
 
-      ref.read(polylineProvider.notifier).state = {};
-
       final mapService = ref.read(mapServiceProvider);
-      final points = await mapService.getPolylinePoints(origin, destination);
-      print('Route points: ${points.length}');
+      final polylines = await mapService.getPolylinePoints(origin, destination);
 
-      if (points.isNotEmpty) {
-        print('Creating polyline...');
-        final polyline = Polyline(
-          polylineId: const PolylineId('route'),
-          points: points,
-          color: Colors.blue,
-          width: 5,
-          visible: true,
-          startCap: Cap.roundCap,
-          endCap: Cap.roundCap,
-        );
-
-        ref.read(polylineProvider.notifier).state = {polyline};
-        print('Polyline set updated');
+      if (polylines.isNotEmpty) {
+        // Get all points from all polylines for bounds calculation
+        final allPoints =
+            polylines.expand((polyline) => polyline.points).toList();
 
         final bounds = LatLngBounds(
           southwest: LatLng(
-            points.map((p) => p.latitude).reduce((a, b) => a < b ? a : b) -
-                0.01,
-            points.map((p) => p.longitude).reduce((a, b) => a < b ? a : b) -
-                0.01,
+            allPoints.map((p) => p.latitude).reduce(min),
+            allPoints.map((p) => p.longitude).reduce(min),
           ),
           northeast: LatLng(
-            points.map((p) => p.latitude).reduce((a, b) => a > b ? a : b) +
-                0.01,
-            points.map((p) => p.longitude).reduce((a, b) => a > b ? a : b) +
-                0.01,
+            allPoints.map((p) => p.latitude).reduce(max),
+            allPoints.map((p) => p.longitude).reduce(max),
           ),
         );
 
-        await _mapController
-            ?.animateCamera(CameraUpdate.newLatLngBounds(bounds, 50));
+        setState(() {
+          ref.read(polylineProvider.notifier).state = Set.from(polylines);
+        });
+
+        await _mapController?.animateCamera(
+          CameraUpdate.newLatLngBounds(bounds, 100),
+        );
       } else {
         ref.read(errorMessageProvider.notifier).state =
             'Could not find a route between these locations';
@@ -153,19 +140,48 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final markers = <Marker>{};
 
     if (origin != null) {
-      markers.add(Marker(
-        markerId: const MarkerId('origin'),
-        position: origin,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-      ));
+      markers.add(
+        Marker(
+          markerId: const MarkerId('origin'),
+          position: origin,
+          icon:
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          infoWindow: const InfoWindow(
+            title: 'Starting Point',
+            snippet: 'Your journey begins here',
+          ),
+          onTap: () {
+            print('Origin marker tapped');
+          },
+          draggable: true,
+          onDragEnd: (newPosition) {
+            ref.read(originLocationProvider.notifier).state = newPosition;
+            _updateRoute();
+          },
+        ),
+      );
     }
 
     if (destination != null) {
-      markers.add(Marker(
-        markerId: const MarkerId('destination'),
-        position: destination,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-      ));
+      markers.add(
+        Marker(
+          markerId: const MarkerId('destination'),
+          position: destination,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          infoWindow: const InfoWindow(
+            title: 'Destination',
+            snippet: 'Your journey ends here',
+          ),
+          onTap: () {
+            print('Destination marker tapped');
+          },
+          draggable: true,
+          onDragEnd: (newPosition) {
+            ref.read(destinationLocationProvider.notifier).state = newPosition;
+            _updateRoute();
+          },
+        ),
+      );
     }
 
     ref.read(markersProvider.notifier).state = markers;

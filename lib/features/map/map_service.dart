@@ -1,14 +1,10 @@
+import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 
 class MapService {
-  final String _googleApiKey =
-      'AIzaSyDWnQJ-1kPQH8tkUwZLUfvVe22nay9zXjY'; // Replace with your API key
-
   Future<Position> getCurrentLocation() async {
     // Return fake location in Hanoi
     return Position(
@@ -54,43 +50,106 @@ class MapService {
     return 'Times City, Hanoi';
   }
 
-  Future<List<LatLng>> getPolylinePoints(
+  Future<List<Polyline>> getPolylinePoints(
       LatLng origin, LatLng destination) async {
-    List<LatLng> polylineCoordinates = [];
+    List<Polyline> polylines = [];
 
     try {
-      final url =
-          Uri.parse('https://maps.googleapis.com/maps/api/directions/json?'
-              'origin=${origin.latitude},${origin.longitude}'
-              '&destination=${destination.latitude},${destination.longitude}'
-              '&mode=driving'
-              '&key=$_googleApiKey');
+      // Simulate a Google Directions API response
+      final Map<String, dynamic> mockDirectionsResponse = {
+        'status': 'OK',
+        'routes': [
+          {
+            'legs': [
+              {
+                'steps': [
+                  {
+                    'travel_mode': 'WALKING',
+                    'polyline': {
+                      'points': 'gej_CssaeSK{FdASrA[',
+                    },
+                  },
+                  {
+                    'travel_mode': 'TRANSIT',
+                    'polyline': {
+                      'points':
+                          's`j_Cq|aeSCMJCfA[\\INAN?N@J?D@N@`@Fp@NlAXf@LhATdATfB^bBb@nCn@b@mCd@yB^mB`@mBJe@DW\\I|A]ZKHAHC|Bi@^IPEDAhA[TG|HcBd@Gl@Ep@Rp@Vn@XrBr@`@Kj@K~Aa@pBe@REdAUbASdAU~@ObBSLCh@GZCJR\\h@pArBTZvAaAFEXSPKTQl@g@XUAC`CeBlBwAxAgAlA{@RIPCX@dAX\\F`@B~COnE[@?xG]xIc@fHW?A~DQrBQZCRAdAE|@ExBMLAzBINA\\CnAGb@C`DQXAl@Ar@I[yANChBKB?LIf@AdBIp@Eh@Ed@A`@C`@CTAfAEJAn@C|@GfCUTCHAd@i@JKBCNQLMDE\\]FGXWb@a@HItAqAVUJKHGHI@At@s@^]BCZYj@g@JKr@o@\\_@HGBCz@y@RSXW\\]d@c@LKRUBGFIT_@Ra@P[JQlA{BXm@b@{@HMJOt@sAJF',
+                    },
+                  },
+                  {
+                    'travel_mode': 'WALKING',
+                    'polyline': {
+                      'points':
+                          '{za_CirdeS?@@@RRtBlBEJIXE`@q@@k@?C@A?A?A@A@ABA@?@AB@BQBYgACIKWUs@K_@K_@MYCGZY',
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      };
 
-      final response = await http.get(url);
-      print("Response status: ${response.statusCode}");
+      if (mockDirectionsResponse['status'] == 'OK') {
+        final routes = mockDirectionsResponse['routes'] as List;
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['status'] == 'OK' && data['routes'].isNotEmpty) {
-          // Get the encoded polyline from overview_polyline
-          final points = PolylinePoints()
-              .decodePolyline(data['routes'][0]['overview_polyline']['points']);
+        for (final route in routes) {
+          final legs = (route as Map<String, dynamic>)['legs'] as List;
 
-          // Convert to LatLng coordinates
-          polylineCoordinates = points
-              .map((point) => LatLng(point.latitude, point.longitude))
-              .toList();
+          for (final leg in legs) {
+            final steps = (leg as Map<String, dynamic>)['steps'] as List;
 
-          print("Successfully decoded ${polylineCoordinates.length} points");
-        } else {
-          print(
-              "Directions API Error: ${data['status']} - ${data['error_message'] ?? 'Unknown error'}");
+            for (int i = 0; i < steps.length; i++) {
+              final step = steps[i] as Map<String, dynamic>;
+              final travelMode = step['travel_mode'] as String;
+              final points = step['polyline']['points'] as String;
+
+              // Decode the polyline points for this step
+              final decodedPoints = PolylinePoints()
+                  .decodePolyline(points)
+                  .map((point) => LatLng(point.latitude, point.longitude))
+                  .toList();
+
+              // Set polyline properties based on travel mode
+              Color color;
+              int width;
+              List<PatternItem> patterns = [];
+
+              switch (travelMode) {
+                case 'WALKING':
+                  color = Colors.green;
+                  width = 4;
+                  patterns = [PatternItem.dash(20), PatternItem.gap(10)];
+                  break;
+                case 'TRANSIT':
+                  color = Colors.blue;
+                  width = 5;
+                  break;
+                default:
+                  color = Colors.grey;
+                  width = 4;
+              }
+
+              final polyline = Polyline(
+                polylineId: PolylineId('route_${i}_$travelMode'),
+                points: decodedPoints,
+                color: color,
+                width: width,
+                patterns: patterns,
+                startCap: Cap.roundCap,
+                endCap: Cap.roundCap,
+              );
+
+              polylines.add(polyline);
+            }
+          }
         }
       }
     } catch (e) {
-      print("Error getting route: $e");
+      print('Error creating route: $e');
+      rethrow;
     }
 
-    return polylineCoordinates;
+    return polylines;
   }
 }
