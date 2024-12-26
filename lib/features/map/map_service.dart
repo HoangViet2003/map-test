@@ -3,13 +3,19 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'map_provider.dart';
 
 class MapService {
+  final String _apiKey =
+      'AIzaSyDWnQJ-1kPQH8tkUwZLUfvVe22nay9zXjY'; // Replace with your API key
+
   Future<Position> getCurrentLocation() async {
     // Return fake location in Hanoi
     return Position(
-      latitude: 21.0285,
-      longitude: 105.8542,
+      latitude: 21.024387195557942,
+      longitude: 105.79029869154314,
       timestamp: DateTime.now(),
       accuracy: 0,
       altitude: 0,
@@ -21,33 +27,87 @@ class MapService {
     );
   }
 
-  Future<List<Location>> getCoordinatesFromAddress(String address) async {
-    // Return fake locations for testing
-    if (address.toLowerCase().contains('hanoi')) {
-      return [
-        Location(
-          latitude: 21.0285,
-          longitude: 105.8542,
-          timestamp: DateTime.now(),
-        )
-      ];
+  Future<List<PlaceAutocomplete>> getPlaceSuggestions(String input) async {
+    if (input.isEmpty) return [];
+
+    final url =
+        Uri.parse('https://maps.googleapis.com/maps/api/place/autocomplete/json'
+            '?input=$input'
+            '&components=country:vn'
+            '&language=vi'
+            '&types=geocode|establishment'
+            '&key=$_apiKey');
+
+    try {
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        if (data['status'] == 'OK') {
+          final predictions = data['predictions'] as List;
+          return predictions.map((p) => PlaceAutocomplete.fromJson(p)).toList();
+        } else {
+          print(
+              'Place Autocomplete Error: ${data['status']} - ${data['error_message'] ?? 'Unknown error'}');
+          return [];
+        }
+      }
+      return [];
+    } catch (e) {
+      print('Error getting place suggestions: $e');
+      return [];
     }
-    // Default to Times City
-    return [
-      Location(
-        latitude: 20.9865,
-        longitude: 105.8695,
-        timestamp: DateTime.now(),
-      )
-    ];
+  }
+
+  Future<LatLng?> getPlaceDetails(String placeId) async {
+    final url =
+        Uri.parse('https://maps.googleapis.com/maps/api/place/details/json'
+            '?place_id=$placeId'
+            '&fields=geometry'
+            '&key=$_apiKey');
+
+    try {
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        if (data['status'] == 'OK') {
+          final location = data['result']['geometry']['location'];
+          return LatLng(location['lat'], location['lng']);
+        } else {
+          print(
+              'Place Details Error: ${data['status']} - ${data['error_message'] ?? 'Unknown error'}');
+          return null;
+        }
+      }
+      return null;
+    } catch (e) {
+      print('Error getting place details: $e');
+      return null;
+    }
   }
 
   Future<String> getAddressFromCoordinates(LatLng position) async {
-    // Return fake addresses for testing
-    if (position.latitude == 21.0285 && position.longitude == 105.8542) {
-      return 'Hoan Kiem Lake, Hanoi';
+    final url = Uri.parse('https://maps.googleapis.com/maps/api/geocode/json'
+        '?latlng=${position.latitude},${position.longitude}'
+        '&language=vi'
+        '&key=$_apiKey');
+
+    try {
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['status'] == 'OK' && data['results'].isNotEmpty) {
+          return data['results'][0]['formatted_address'];
+        }
+      }
+      return '${position.latitude}, ${position.longitude}';
+    } catch (e) {
+      return '${position.latitude}, ${position.longitude}';
     }
-    return 'Times City, Hanoi';
   }
 
   Future<List<Polyline>> getPolylinePoints(
