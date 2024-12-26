@@ -30,17 +30,23 @@ class MapService {
   Future<List<PlaceAutocomplete>> getPlaceSuggestions(String input) async {
     if (input.isEmpty) return [];
 
+    const hanoiLat = 21.0285;
+    const hanoiLng = 105.8542;
+    const radius = 10000; // Radius in meters (50 km)
+
     final url =
         Uri.parse('https://maps.googleapis.com/maps/api/place/autocomplete/json'
             '?input=$input'
             '&components=country:vn'
             '&language=vi'
             '&types=geocode|establishment'
+            '&location=$hanoiLat,$hanoiLng'
+            '&radius=$radius'
             '&key=$_apiKey');
 
     try {
+      print(url);
       final response = await http.get(url);
-
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
 
@@ -211,5 +217,132 @@ class MapService {
     }
 
     return polylines;
+  }
+
+  Future<List<Map<String, dynamic>>> getPossibleRoutes(
+      LatLng origin, LatLng destination) async {
+    final url = Uri.parse('https://maps.googleapis.com/maps/api/directions/json'
+        '?origin=${origin.latitude},${origin.longitude}'
+        '&destination=${destination.latitude},${destination.longitude}'
+        '&alternatives=true'
+        '&mode=transit'
+        '&language=vi'
+        '&key=$_apiKey');
+
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['status'] == 'OK') {
+          final routes = data['routes'] as List;
+          return routes.map((route) {
+            final leg = route['legs'][0];
+            return {
+              'distance': leg['distance']['text'],
+              'duration': leg['duration']['text'],
+              'steps': leg['steps'],
+              'overview_polyline': route['overview_polyline']['points'],
+              'summary': route['summary'],
+            };
+          }).toList();
+        }
+      }
+      return [];
+    } catch (e) {
+      print('Error getting routes: $e');
+      return [];
+    }
+  }
+
+  Future<List<Polyline>> getPolylineFromRoute(
+      Map<String, dynamic> route) async {
+    List<Polyline> polylines = [];
+    try {
+      final steps = route['steps'] as List;
+
+      for (int i = 0; i < steps.length; i++) {
+        final step = steps[i] as Map<String, dynamic>;
+        final travelMode = step['travel_mode'] as String;
+        final points = step['polyline']['points'] as String;
+
+        final polylinePoints = PolylinePoints();
+        final decodedPoints = polylinePoints.decodePolyline(points);
+        final List<LatLng> polylineCoordinates = decodedPoints
+            .map((point) => LatLng(point.latitude, point.longitude))
+            .toList();
+
+        // Set polyline properties based on travel mode
+        Color color;
+        int width;
+        List<PatternItem> patterns = [];
+
+        switch (travelMode) {
+          case 'WALKING':
+            color = Colors.green;
+            width = 4;
+            patterns = [PatternItem.dash(20), PatternItem.gap(10)];
+            break;
+          case 'TRANSIT':
+            color = Colors.blue;
+            width = 5;
+            break;
+          default:
+            color = Colors.grey;
+            width = 4;
+        }
+
+        final polyline = Polyline(
+          polylineId: PolylineId('route_${i}_$travelMode'),
+          points: polylineCoordinates,
+          color: color,
+          width: width,
+          patterns: patterns,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+        );
+
+        polylines.add(polyline);
+      }
+    } catch (e) {
+      print('Error creating route: $e');
+      rethrow;
+    }
+
+    return polylines;
+  }
+
+  Future<List<Map<String, dynamic>>> searchNearbyBusStations(LatLng location,
+      {double radius = 5000}) async {
+    final url =
+        Uri.parse('https://maps.googleapis.com/maps/api/place/nearbysearch/json'
+            '?location=${location.latitude},${location.longitude}'
+            '&radius=$radius'
+            '&type=bus_station'
+            '&language=vi'
+            '&key=$_apiKey');
+    print(url);
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['status'] == 'OK') {
+          final results = data['results'] as List;
+          return results.map((place) {
+            final location = place['geometry']['location'];
+            return {
+              'name': place['name'],
+              'address': place['vicinity'],
+              'location': LatLng(location['lat'], location['lng']),
+              'rating': place['rating']?.toString() ?? 'N/A',
+              'place_id': place['place_id'],
+            };
+          }).toList();
+        }
+      }
+      return [];
+    } catch (e) {
+      print('Error searching bus stations: $e');
+      return [];
+    }
   }
 }
