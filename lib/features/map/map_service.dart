@@ -226,6 +226,7 @@ class MapService {
         '&destination=${destination.latitude},${destination.longitude}'
         '&alternatives=true'
         '&mode=transit'
+        '&transit_mode=bus'
         '&language=vi'
         '&key=$_apiKey');
 
@@ -237,11 +238,57 @@ class MapService {
           final routes = data['routes'] as List;
           return routes.map((route) {
             final leg = route['legs'][0];
+            final steps = leg['steps'] as List;
+
+            // Process each step to include transit details
+            final processedSteps = steps.map((step) {
+              final Map<String, dynamic> processedStep = {
+                'travel_mode': step['travel_mode'],
+                'duration': step['duration'],
+                'distance': step['distance'],
+                'html_instructions': step['html_instructions'],
+                'polyline': step['polyline'],
+              };
+
+              // Add transit details if this is a transit step
+              if (step['travel_mode'] == 'TRANSIT' &&
+                  step['transit_details'] != null) {
+                final transitDetails = step['transit_details'];
+                processedStep['transit_details'] = {
+                  'departure_stop': {
+                    'name': transitDetails['departure_stop']['name'],
+                    'location': transitDetails['departure_stop']['location'],
+                  },
+                  'arrival_stop': {
+                    'name': transitDetails['arrival_stop']['name'],
+                    'location': transitDetails['arrival_stop']['location'],
+                  },
+                  'departure_time': transitDetails['departure_time'],
+                  'arrival_time': transitDetails['arrival_time'],
+                  'headsign': transitDetails['headsign'],
+                  'line': {
+                    'name': transitDetails['line']['name'],
+                    'short_name': transitDetails['line']['short_name'],
+                    'vehicle': {
+                      'name': transitDetails['line']['vehicle']['name'],
+                      'type': transitDetails['line']['vehicle']['type'],
+                      'icon': transitDetails['line']['vehicle']['icon'],
+                    },
+                    'agencies': transitDetails['line']['agencies'],
+                  },
+                  'num_stops': transitDetails['num_stops'],
+                };
+              }
+
+              return processedStep;
+            }).toList();
+
             return {
-              'distance': leg['distance']['text'],
-              'duration': leg['duration']['text'],
-              'steps': leg['steps'],
+              'distance': leg['distance'],
+              'duration': leg['duration'],
+              'steps': processedSteps,
               'overview_polyline': route['overview_polyline']['points'],
+              'fare': route['fare'],
               'summary': route['summary'],
             };
           }).toList();
